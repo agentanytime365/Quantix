@@ -1,0 +1,158 @@
+Update the existing Quantix application to support **step-level test case export for Jira compatibility**.
+
+---
+
+## GOAL
+
+Modify the data model and CSV export so that:
+
+* Each test step includes:
+
+  * step description
+  * test data
+  * expected result
+
+* CSV output should have **one row per step**, not per test case.
+
+---
+
+## DATA MODEL UPDATE
+
+Update TestCase structure to:
+
+{
+id: string,
+title: string,
+description: string,
+type: "positive" | "negative" | "edge",
+testingTypes: ["api" | "frontend_ui" | "backend_db"],
+priority: "low" | "medium" | "high",
+steps: [
+{
+step: string,
+testData: string,
+expectedResult: string
+}
+]
+}
+
+---
+
+## OPENAI PROMPT UPDATE
+
+Modify OpenAI prompt to enforce step-level structure:
+
+Each test case must contain:
+
+* steps as an array of objects
+* each object must include:
+
+  * step
+  * testData
+  * expectedResult
+
+Rules:
+
+* Each step should represent a clear action
+* Each step must have corresponding test data (or "N/A")
+* Each step must have its own expected result
+* Do NOT provide a single expected result for the whole test case
+
+Return JSON ONLY.
+
+Example format:
+
+{
+"testCases": [
+{
+"id": "TC-001",
+"title": "Login with valid credentials",
+"type": "positive",
+"testingTypes": ["frontend_ui"],
+"priority": "medium",
+"description": "Verify login works",
+"steps": [
+{
+"step": "Navigate to login page",
+"testData": "URL",
+"expectedResult": "Login page is displayed"
+},
+{
+"step": "Enter valid username and password",
+"testData": "valid credentials",
+"expectedResult": "Credentials accepted"
+}
+]
+}
+]
+}
+
+---
+
+## CSV EXPORT CHANGE
+
+Update csvService.js:
+
+* Flatten test cases into step-level rows
+* Each step becomes a new row
+
+CSV columns:
+
+* Test Case ID
+* Title
+* Type
+* Testing Types
+* Priority
+* Description
+* Step
+* Test Data
+* Expected Result
+
+Implementation logic:
+
+For each testCase:
+For each step:
+create a row combining testCase + step
+
+---
+
+## EXPECTED CSV OUTPUT
+
+Example:
+
+TC-001 | Login test | positive | frontend_ui | medium | Verify login |
+Navigate to login page | URL | Page loads
+
+TC-001 | Login test | positive | frontend_ui | medium | Verify login |
+Enter credentials | valid user | Login success
+
+---
+
+## FRONTEND UPDATE (OPTIONAL BUT RECOMMENDED)
+
+* Display steps in table format:
+  Step | Test Data | Expected Result
+
+* Keep backward compatibility if needed
+
+---
+
+## IMPORTANT RULES
+
+* Maintain existing functionality
+* Ensure JSON parsing still works
+* Ensure CSV download works correctly
+* Handle missing testData as "N/A"
+
+---
+
+## OUTPUT
+
+Update all affected files:
+
+* openaiService.js
+* csvService.js
+* any types/interfaces
+* frontend rendering (if needed)
+
+Provide full updated code.

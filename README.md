@@ -1,4 +1,3 @@
-
 # Quantix — AI-Powered QA Test Case Generator
 
 Quantix is a full-stack web application that generates structured QA test cases from plain-English user stories using OpenAI GPT-4o. Built for QA engineers, developers, and product teams who need consistent, professional test coverage without manual effort.
@@ -41,7 +40,7 @@ Quantix is a full-stack web application that generates structured QA test cases 
 |---|---|
 | Frontend | React 18, Vite |
 | Backend | Node.js, Express |
-| AI | OpenAI GPT-4o (`gpt-4o`) |
+| AI | Configurable — default: Google Gemini 2.5 Flash |
 | Styling | Plain CSS (CSS custom properties, dark/light themes) |
 | HTTP | Axios |
 | File Downloads | Blob / `URL.createObjectURL` |
@@ -58,9 +57,10 @@ quantix/
 │       └── styles.css       # Dark glass theme, light mode, all component styles
 ├── server/
 │   ├── index.js             # Express server entry point (serves API + static build)
-│   ├── routes.js            # All API routes
+│   ├── routes.js            # All API routes (including GET /api/provider)
 │   └── services/
-│       ├── openaiService.js          # GPT-4o test case generation
+│       ├── llmProvider.js            # LLM provider registry — reads LLM_PROVIDER env var
+│       ├── openaiService.js          # Test case generation (provider-agnostic)
 │       ├── parser.js                 # Safe JSON parser for AI responses
 │       ├── quotaService.js           # IP-based daily usage tracking
 │       └── automationReady/
@@ -75,9 +75,53 @@ quantix/
 
 ## Environment Variables
 
+### LLM Provider (configurable — no code changes needed)
+
 | Variable | Required | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | Your OpenAI API key (GPT-4o access required) |
+| `LLM_PROVIDER` | No | Which AI provider to use. Default: `gemini`. Options: `gemini`, `openai`, `azure`, `anthropic`, `groq`, `ollama` |
+| `LLM_MODEL` | No | Override the default model for the active provider (e.g. `gpt-4-turbo`, `claude-opus-4-5`) |
+| `LLM_BASE_URL` | Azure only | Base URL for Azure OpenAI deployments |
+
+### API Keys (one per provider)
+
+| Variable | Provider | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | `gemini` (default) | Google AI Studio key |
+| `OPENAI_API_KEY` | `openai` | OpenAI platform key |
+| `AZURE_OPENAI_API_KEY` | `azure` | Azure OpenAI key (also set `LLM_BASE_URL` + `LLM_MODEL`) |
+| `ANTHROPIC_API_KEY` | `anthropic` | Anthropic Console key |
+| `GROQ_API_KEY` | `groq` | Groq Cloud key |
+| _(none)_ | `ollama` | Local Ollama — no key needed |
+
+### Switching providers
+
+```
+# Use OpenAI GPT-4o instead of Gemini
+LLM_PROVIDER=openai
+
+# Use Anthropic Claude
+LLM_PROVIDER=anthropic
+
+# Use Azure OpenAI
+LLM_PROVIDER=azure
+LLM_BASE_URL=https://my-instance.openai.azure.com/openai/deployments/my-deployment
+LLM_MODEL=my-deployment-name
+
+# Use Groq (fast Llama inference)
+LLM_PROVIDER=groq
+
+# Use local Ollama
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3
+```
+
+### Checking the active provider
+
+```
+GET /api/provider
+→ { "provider": "gemini", "label": "Google Gemini", "model": "gemini-2.5-flash", "supportsJsonMode": true }
+```
 
 ---
 
@@ -85,7 +129,7 @@ quantix/
 
 ### Prerequisites
 - Node.js 18+
-- An OpenAI API key with GPT-4o access
+- An API key for your chosen provider (default: Google Gemini — set `GEMINI_API_KEY`)
 
 ### Install & Run (Development)
 

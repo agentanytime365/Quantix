@@ -1,0 +1,190 @@
+You are an expert full-stack engineer.
+
+Update the existing Quantix application to support **separate automation export functionality** without changing the core test case generation.
+
+---
+
+## GOAL
+
+Decouple test case generation from automation frameworks.
+
+1. Generate framework-agnostic test cases (existing behavior)
+2. Add a new "Export & Integrations" section
+3. Allow exporting generated test cases into:
+
+   * Playwright scripts
+   * Cypress scripts
+   * Postman collections
+
+---
+
+## FRONTEND UPDATE (React - App.jsx)
+
+Add a new section BELOW generated test cases:
+
+Title: "Export & Integrations"
+
+Group buttons:
+
+Manual:
+
+* Download CSV (existing)
+* Copy all as Markdown (existing)
+
+Automation:
+
+* Export Playwright
+* Export Cypress
+* Export Postman
+
+Each button should:
+
+* Use current testCases state
+* Call backend API
+* Download or display generated code
+
+---
+
+## OPTIONAL TOGGLE
+
+Add a checkbox:
+
+"Automation Ready Output"
+
+If enabled:
+
+* Send flag to backend
+* Backend modifies OpenAI prompt to include:
+
+  * selector
+  * action (click, type, navigate)
+  * testData
+
+---
+
+## BACKEND API (Express)
+
+Add endpoints:
+
+POST /api/export/playwright
+POST /api/export/cypress
+POST /api/export/postman
+
+Request:
+{
+testCases: [...]
+}
+
+Response:
+{
+code: "generated script or JSON"
+}
+
+---
+
+## SERVICE IMPLEMENTATION
+
+Create new folder:
+/server/services/automation/
+
+Add:
+
+1. playwrightService.js
+2. cypressService.js
+3. postmanService.js
+
+---
+
+## PLAYWRIGHT SERVICE
+
+Convert test cases into:
+
+test('title', async ({ page }) => {
+// steps mapped
+});
+
+Mapping rules:
+
+* "navigate" → page.goto()
+* "enter" → page.fill()
+* "click" → page.click()
+
+Fallback:
+
+* If no selector → add comment
+
+---
+
+## CYPRESS SERVICE
+
+Convert into:
+
+describe('Test Suite', () => {
+it('title', () => {
+cy.visit()
+cy.get().type()
+cy.get().click()
+})
+})
+
+---
+
+## POSTMAN SERVICE
+
+If testingTypes includes "api":
+
+Generate collection JSON:
+
+{
+"info": { "name": "Quantix Collection" },
+"item": [...]
+}
+
+Each request includes:
+
+* method (default POST)
+* url placeholder
+* body from testData
+
+---
+
+## ROUTES UPDATE
+
+Update routes.js:
+
+import services and map endpoints.
+
+---
+
+## DOWNLOAD HANDLING
+
+Frontend should:
+
+* Trigger file download
+* Use correct extension:
+
+  * .spec.js (Playwright)
+  * .cy.js (Cypress)
+  * .json (Postman)
+
+---
+
+## IMPORTANT RULES
+
+* Do NOT change existing test generation flow
+* Export should use already generated testCases
+* Handle missing selectors gracefully
+* Add comments in generated code where data is missing
+
+---
+
+## OUTPUT
+
+Update:
+
+* App.jsx
+* routes.js
+* Create automation services
+* Ensure full working code
+
+Provide complete updated code files.

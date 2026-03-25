@@ -1,0 +1,80 @@
+1. Add state
+const [showJiraHelp, setShowJiraHelp] = useState(false);
+2. Replace your help text
+<p style={{ fontSize: "0.9rem", opacity: 0.7, cursor: "pointer" }}
+   onClick={() => setShowJiraHelp(true)}>
+  Need help importing into Jira?
+</p>
+3. Add Modal JSX (put near bottom of return)
+{showJiraHelp && (
+  <div style={styles.modalOverlay}>
+    <div style={styles.modal}>
+      <h2>Import Test Cases into Jira (Zephyr)</h2>
+
+      <ol>
+        <li>Download the CSV from Quantix.</li>
+        <li>Go to your Jira project.</li>
+        <li>Navigate to <b>Zephyr → Test Cases</b>.</li>
+        <li>Click <b>Import</b> → Select CSV.</li>
+        <li>Map the fields:</li>
+        <ul>
+          <li>Summary → Title</li>
+          <li>Step → Step</li>
+          <li>Test Data → Test Data</li>
+          <li>Expected Result → Expected Result</li>
+        </ul>
+        <li>Run import and verify test cases.</li>
+      </ol>
+
+      <div style={{ marginTop: 16 }}>
+        <b>Tips:</b>
+        <ul>
+          <li>Ensure no empty rows in CSV</li>
+          <li>Keep consistent column headers</li>
+          <li>Use UTF-8 encoding if issues occur</li>
+        </ul>
+      </div>
+
+      <button onClick={() => setShowJiraHelp(false)} style={styles.closeBtn}>
+        Close
+      </button>
+    </div>
+  </div>
+)}
+4. Add Styles (same file or styles.css)
+const styles = {
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000
+  },
+  modal: {
+    background: "#fff",
+    padding: "24px",
+    borderRadius: "12px",
+    width: "500px",
+    maxHeight: "80vh",
+    overflowY: "auto",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.2)"
+  },
+  closeBtn: {
+    marginTop: "16px",
+    padding: "8px 16px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#14b8a6",
+    color: "#fff",
+    cursor: "pointer"
+  }
+};
+✨ UX Improvements (Optional but Worth It)
+1. Add small icon (feels premium)
+Need help importing into Jira? ⓘ
+2. Auto-close on outside click (later enhancement)

@@ -1,0 +1,254 @@
+You are an expert full-stack engineer.
+
+Build a complete production-ready web app called **“Quantix”**, an AI-powered test case generator.
+
+The app must run fully inside Replit with both frontend and backend.
+
+---
+
+## APP OVERVIEW
+
+Quantix allows users to:
+
+* Paste a User Story
+* Select Test Types (Positive, Negative, Edge)
+* Select Testing Types (API, Frontend UI, Backend DB)
+* Choose number of test cases (3, 5, 8, 10)
+* Choose format (Standard, Gherkin, Tabular)
+* Generate structured test cases using OpenAI
+
+---
+
+## TECH STACK
+
+Frontend:
+
+* React (Vite)
+* Simple CSS or Tailwind
+
+Backend:
+
+* Node.js with Express
+
+AI:
+
+* OpenAI API (chat/completions)
+
+Optional:
+
+* Supabase (for usage tracking)
+
+---
+
+## PROJECT STRUCTURE
+
+Create this structure:
+
+/server
+index.js
+routes.js
+/services
+openaiService.js
+quotaService.js
+parser.js
+csvService.js
+
+/client
+index.html
+package.json
+vite.config.js
+/src
+main.jsx
+App.jsx
+styles.css
+
+Root:
+package.json
+README.md
+.env.example
+
+---
+
+## FUNCTIONAL REQUIREMENTS
+
+1. UI (React)
+
+* Page title: "Quantix - AI - Instant Test Case"
+* H1: Quantix
+* H2: AI - Instant Test Case Generator for your user stories
+
+Inputs:
+
+* Textarea: User Story (max 2000 chars)
+
+* Checkbox group: Test Types
+
+  * Positive (default checked)
+  * Negative (default checked)
+  * Edge (default checked)
+
+* Checkbox group: Testing Types (at least one required)
+
+  * API
+  * Frontend UI
+  * Backend DB
+
+* Dropdown: Count
+
+  * 3, 5, 8, 10 (default 5)
+
+* Dropdown: Format
+
+  * Standard
+  * Gherkin
+  * Tabular
+
+* Button: Generate Test Cases
+
+States:
+
+* Loading spinner
+* Error message
+* Usage indicator: “X of 5 free generations used today”
+
+Disable button if quota exceeded.
+
+---
+
+## BACKEND API
+
+POST /api/generate-test-cases
+
+Request:
+{
+userStory,
+testTypes,
+testingTypes,
+count,
+format
+}
+
+Validation:
+
+* userStory required (1–2000 chars)
+* testTypes not empty
+* testingTypes not empty
+* count must be 3,5,8,10
+
+Behavior:
+
+* Check daily quota (limit 5)
+
+* If exceeded → return 429
+
+* Call OpenAI
+
+* Return structured JSON
+
+Response:
+{
+testCases: [],
+usage: {
+usedToday,
+limitPerDay: 5
+}
+}
+
+GET /api/usage
+
+* Returns usage info
+
+---
+
+## TEST CASE DATA MODEL
+
+Each test case must follow:
+
+{
+id: string,
+title: string,
+description: string,
+type: "positive" | "negative" | "edge",
+testingTypes: ["api" | "frontend_ui" | "backend_db"],
+steps: string[],
+expectedResult: string,
+priority: "low" | "medium" | "high"
+}
+
+---
+
+## OPENAI PROMPT
+
+System message:
+
+"You are a senior QA engineer named Quantix. You generate high-quality structured test cases. You ALWAYS return valid JSON only."
+
+User message template:
+
+User story:
+{{userStory}}
+
+Test types: {{testTypes}}
+Testing types: {{testingTypes}}
+Count: {{count}}
+
+Rules:
+
+* All test cases must be unique
+* Align steps with testing types:
+
+  * API → endpoints, payloads, status codes
+  * Frontend UI → user interactions, validations
+  * Backend DB → data persistence, constraints
+* Return ONLY JSON
+
+---
+
+## QUOTA LOGIC
+
+* 5 requests per day per user
+* Identify user via IP or session
+* Use in-memory store
+* If Supabase env exists, log usage there
+
+---
+
+## FEATURES
+
+* Display generated test cases in cards
+
+* Show:
+
+  * Title
+  * Type
+  * Testing Types
+  * Steps
+  * Expected Result
+  * Priority
+
+* Button per test case: Copy as Markdown
+
+* Button: Copy all
+
+* Button: Download CSV
+
+---
+
+## IMPORTANT IMPLEMENTATION RULES
+
+* Use modular services (openaiService, quotaService, etc.)
+* Add safe JSON parsing (handle broken AI responses)
+* Use low temperature (0.2)
+* Ensure clean UI layout
+* Comment important parts of code
+
+---
+
+## OUTPUT REQUIREMENT
+
+Generate ALL files with full code content.
+
+Do NOT skip files.
+Do NOT summarize.
+
+Provide complete working code ready to paste into Replit.
