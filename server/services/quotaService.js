@@ -1,7 +1,11 @@
 // In-memory quota store: { ip: { count, date } }
 const quotaStore = {};
 
-const LIMIT_PER_DAY = 5;
+// Production defaults to 3/day; dev defaults to 50/day.
+// isProd is true when NODE_ENV=production OR when running as a Replit deployment (REPLIT_DEPLOYMENT=1).
+// Override either limit with the DAILY_QUOTA_LIMIT env var.
+const isProd = process.env.NODE_ENV === 'production' || process.env.REPLIT_DEPLOYMENT === '1';
+const LIMIT_PER_DAY = parseInt(process.env.DAILY_QUOTA_LIMIT || (isProd ? '3' : '50'), 10);
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
