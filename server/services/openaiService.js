@@ -5,7 +5,31 @@ const { safeParseJSON } = require('./parser');
  * Build the generation prompt.
  * Format-specific examples prevent the LLM from defaulting to one style.
  */
-function buildPrompt({ userStory, testTypes, testingTypes, count, format }) {
+function buildContextSection(context) {
+  if (!context || !context.summary) return '';
+
+  const lines = [
+    '',
+    '─── CONTEXT FROM UPLOADED DOCUMENTS / IMAGES ───────────────────────────────',
+    `Summary: ${context.summary}`,
+  ];
+
+  if (context.keyEntities?.length)
+    lines.push(`Key entities: ${context.keyEntities.join(', ')}`);
+  if (context.flows?.length)
+    lines.push(`Flows:\n${context.flows.map((f) => `  • ${f}`).join('\n')}`);
+  if (context.validations?.length)
+    lines.push(`Validations:\n${context.validations.map((v) => `  • ${v}`).join('\n')}`);
+  if (context.edgeCases?.length)
+    lines.push(`Edge cases from docs:\n${context.edgeCases.map((e) => `  • ${e}`).join('\n')}`);
+
+  lines.push('Use this context to make the test cases more specific and comprehensive.');
+  lines.push('────────────────────────────────────────────────────────────────────────');
+
+  return lines.join('\n');
+}
+
+function buildPrompt({ userStory, testTypes, testingTypes, count, format, context }) {
   const testTypesStr   = testTypes.join(', ');
   const testingTypesStr = testingTypes.join(', ');
 
@@ -59,11 +83,13 @@ UNIQUENESS RULES — this is critical. Every test case must cover a DIFFERENT sp
   ]
 }`;
 
+  const contextSection = buildContextSection(context);
+
   return `You are generating ${count} test cases for the following user story. Every test case must be completely unique — covering a distinct scenario, distinct inputs, and a distinct expected outcome.
 
 USER STORY:
 ${userStory}
-
+${contextSection}
 Test types to include: ${testTypesStr}
 Testing types (layer focus): ${testingTypesStr}
 Output format: ${format}
@@ -119,7 +145,7 @@ async function generateViaOpenAICompat(client, provider, userPrompt) {
   const requestOpts = {
     model:       provider.model,
     temperature: 0.5,
-    max_tokens:  8192,
+    max_tokens:  16000,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user',   content: userPrompt },
@@ -140,7 +166,7 @@ async function generateViaOpenAICompat(client, provider, userPrompt) {
 async function generateViaAnthropic(client, provider, userPrompt) {
   const response = await client.messages.create({
     model:      provider.model,
-    max_tokens: 8192,
+    max_tokens: 16000,
     system:     SYSTEM_PROMPT,
     messages: [
       { role: 'user', content: userPrompt },

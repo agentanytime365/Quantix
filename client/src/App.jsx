@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ExpandableTestCases from './components/ExpandableTestCases';
+import ContactUsModal from './components/ContactUsModal';
+import TermsAndConditions from './components/TermsAndConditions';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -277,10 +280,17 @@ export default function App() {
 
   const [copiedAll, setCopiedAll] = useState(false);
   const [automationReady, setAutomationReady] = useState(false);
+  const [automationWasGenerated, setAutomationWasGenerated] = useState(false);
   const [exportLoading, setExportLoading] = useState(null);
   const [exportError, setExportError] = useState('');
 
   const [showJiraHelp, setShowJiraHelp] = useState(false);
+
+  // ─── Context Enrichment state ─────────────────────────────────────────────
+  const [uploadedFiles, setUploadedFiles]   = useState([]);   // { name, size, type }[]
+  const [context, setContext]               = useState(null);  // structured context from backend
+  const [uploadLoading, setUploadLoading]   = useState(false);
+  const [uploadError, setUploadError]       = useState('');
 
   // ─── Feedback state ───────────────────────────────────────────────────────
   const [feedbackRating, setFeedbackRating]       = useState(null);
@@ -331,15 +341,16 @@ export default function App() {
       const res = await fetch('/api/generate-test-cases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userStory, testTypes, testingTypes, count, format })
+        body: JSON.stringify({ userStory, testTypes, testingTypes, count, format, context })
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         if (res.status === 429) {
-          setError('Daily quota exceeded. You can generate up to 5 test cases per day. Come back tomorrow!');
           if (data.usage) setUsage(data.usage);
+          const limit = data.usage ? data.usage.limitPerDay : 3;
+          setError(`Daily quota exceeded. You can generate up to ${limit} test cases per day. Come back tomorrow!`);
         } else {
           setError(data.error || 'Something went wrong. Please try again.');
         }
@@ -347,6 +358,7 @@ export default function App() {
       }
 
       setTestCases(data.testCases || []);
+      setAutomationWasGenerated(automationReady);
       setActiveFormat(format);
       if (data.usage) setUsage(data.usage);
 
@@ -359,7 +371,75 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [userStory, testTypes, testingTypes, count, format]);
+  }, [userStory, testTypes, testingTypes, count, format, automationReady]);
+
+  // ─── Context Enrichment handlers ──────────────────────────────────────────
+  const handleFileUpload = useCallback(async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const MAX_FILES = 3;
+    const MAX_MB    = 5;
+    const combined  = [...uploadedFiles, ...files].slice(0, MAX_FILES);
+
+    for (const f of files) {
+      if (f.size > MAX_MB * 1024 * 1024) {
+        setUploadError(`"${f.name}" exceeds the 5 MB size limit.`);
+        return;
+      }
+    }
+
+    setUploadError('');
+    setUploadLoading(true);
+
+    const formData = new FormData();
+    combined.forEach((f) => formData.append('files', f));
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadError(data.error || 'Upload failed. Please try again.');
+        return;
+      }
+      setUploadedFiles(combined);
+      setContext(data.context);
+    } catch {
+      setUploadError('Network error during upload. Please try again.');
+    } finally {
+      setUploadLoading(false);
+      e.target.value = '';
+    }
+  }, [uploadedFiles]);
+
+  const handleRemoveFile = useCallback((index) => {
+    const next = uploadedFiles.filter((_, i) => i !== index);
+    setUploadedFiles(next);
+    if (!next.length) setContext(null);
+  }, [uploadedFiles]);
+
+  const handleNewTestCase = useCallback(() => {
+    setUserStory('');
+    setTestTypes([]);
+    setTestingTypes([]);
+    setCount(3);
+    setFormat('Gherkin');
+    setUploadedFiles([]);
+    setContext(null);
+    setUploadError('');
+    setTestCases([]);
+    setUsage(null);
+    setCopiedAll(false);
+    setExportError('');
+    setExportLoading(null);
+    setError('');
+    setFeedbackRating(null);
+    setFeedbackComment('');
+    setFeedbackSubmitted(false);
+    setAutomationReady(false);
+    setAutomationWasGenerated(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const handleCopyAll = () => {
     copyToClipboard(allTestCasesToMarkdown(testCases), () => {
@@ -473,6 +553,76 @@ export default function App() {
               />
             </div>
 
+            {/* ─── Context Enrichment ─────────────────────────────────── */}
+            <div className="context-panel">
+              <div className="context-panel-header">
+                <span className="context-panel-title">
+                  ＋ Add files like BRD, Design docs or Screenshots
+                </span>
+                <span className="context-panel-hint">
+                  Drag &amp; drop files or click to upload (PDF, DOCX, TXT, PNG, JPG)
+                </span>
+              </div>
+
+              {/* Drop zone / file input */}
+              {uploadedFiles.length < 3 && (
+                <label className={`context-dropzone ${uploadLoading ? 'context-dropzone--loading' : ''}`}>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"
+                    onChange={handleFileUpload}
+                    disabled={uploadLoading}
+                    style={{ display: 'none' }}
+                  />
+                  {uploadLoading ? (
+                    <span className="context-dropzone-text">
+                      <span className="btn-spinner context-spinner" />
+                      Analysing documents…
+                    </span>
+                  ) : (
+                    <span className="context-dropzone-text">
+                      <span className="context-upload-icon">⬆</span>
+                      {uploadedFiles.length > 0
+                        ? 'Add more files or replace existing'
+                        : 'Drag & drop files or click to upload'}
+                    </span>
+                  )}
+                </label>
+              )}
+
+              {/* File chips */}
+              {uploadedFiles.length > 0 && (
+                <div className="uploaded-files">
+                  {uploadedFiles.map((f, i) => (
+                    <div className="file-chip" key={`${f.name}-${i}`}>
+                      <span className="file-icon">
+                        {f.type?.startsWith('image/') ? '🖼️' : '📄'}
+                      </span>
+                      <span className="file-name" title={f.name}>{f.name}</span>
+                      <span className="file-size">({(f.size / 1024).toFixed(0)} KB)</span>
+                      <button onClick={() => handleRemoveFile(i)} title="Remove file">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Context ready indicator */}
+              {context && !uploadLoading && (
+                <div className="context-ready">
+                  <span className="context-ready-dot" />
+                  <span className="context-ready-text">
+                    Context extracted — {context.flows?.length || 0} flows · {context.validations?.length || 0} validations · {context.edgeCases?.length || 0} edge cases identified
+                  </span>
+                </div>
+              )}
+
+              {/* Upload error */}
+              {uploadError && (
+                <div className="context-upload-error">⚠️ {uploadError}</div>
+              )}
+            </div>
+
             {/* Test Types & Testing Types side-by-side on wide screens */}
             <div className="form-row">
               <CheckboxGroup
@@ -542,11 +692,18 @@ export default function App() {
               </div>
             )}
 
+            {/* New Test Case / reset button — shown when there is content to clear */}
+            {(userStory.trim() || testCases.length > 0 || uploadedFiles.length > 0) && !loading && (
+              <button className="btn-new-test btn-new-test--above-generate" onClick={handleNewTestCase}>
+                + New Test Case
+              </button>
+            )}
+
             {/* Generate button */}
             <button
-              className={`btn-generate ${loading || quotaExceeded || charOver ? 'btn-disabled' : ''}`}
+              className={`btn-generate ${loading || uploadLoading || quotaExceeded || charOver ? 'btn-disabled' : ''}`}
               onClick={handleGenerate}
-              disabled={loading || !!quotaExceeded || charOver}
+              disabled={loading || uploadLoading || !!quotaExceeded || charOver}
             >
               {loading ? (
                 <span className="btn-loading">
@@ -576,55 +733,57 @@ export default function App() {
               </p>
             </div>
 
-            <div className="export-groups">
-              {/* Manual exports */}
+            <div className={`export-groups ${automationReady && automationWasGenerated ? 'export-groups--split' : ''}`}>
+              {/* Manual Export panel */}
               <div className="export-group">
-                <p className="export-group-label">Manual</p>
-                <div className="export-group-btns">
-                  <button className="btn-export btn-export-manual" onClick={handleCopyAll}>
+                <p className="export-group-label">Manual Export</p>
+                <div className="export-group-btns export-group-btns--col">
+                  <button className="btn-export btn-export-manual btn-export--full" onClick={handleCopyAll}>
                     <span className="export-btn-icon">📋</span>
                     <span>{copiedAll ? 'Copied!' : 'Copy Markdown'}</span>
                   </button>
-                  <button className="btn-export btn-export-manual" onClick={() => downloadCSV(testCases)}>
+                  <button className="btn-export btn-export-manual btn-export--full" onClick={() => downloadCSV(testCases)}>
                     <span className="export-btn-icon">⬇</span>
                     <span>Download CSV</span>
                   </button>
                 </div>
               </div>
 
-              {/* Automation exports */}
-              <div className="export-group">
-                <p className="export-group-label">Automation</p>
-                <div className="export-group-btns">
-                  <button
-                    className={`btn-export btn-export-playwright ${exportLoading === 'playwright' ? 'btn-export-loading' : ''}`}
-                    onClick={() => handleExport('playwright')}
-                    disabled={!!exportLoading}
-                  >
-                    <span className="export-btn-icon">🎭</span>
-                    <span>{exportLoading === 'playwright' ? 'Generating…' : 'Export Playwright'}</span>
-                    <span className="export-ext">.spec.js</span>
-                  </button>
-                  <button
-                    className={`btn-export btn-export-cypress ${exportLoading === 'cypress' ? 'btn-export-loading' : ''}`}
-                    onClick={() => handleExport('cypress')}
-                    disabled={!!exportLoading}
-                  >
-                    <span className="export-btn-icon">🌲</span>
-                    <span>{exportLoading === 'cypress' ? 'Generating…' : 'Export Cypress'}</span>
-                    <span className="export-ext">.cy.js</span>
-                  </button>
-                  <button
-                    className={`btn-export btn-export-postman ${exportLoading === 'postman' ? 'btn-export-loading' : ''}`}
-                    onClick={() => handleExport('postman')}
-                    disabled={!!exportLoading}
-                  >
-                    <span className="export-btn-icon">📮</span>
-                    <span>{exportLoading === 'postman' ? 'Generating…' : 'Export Postman'}</span>
-                    <span className="export-ext">.json</span>
-                  </button>
+              {/* Automation Scripts panel — only when toggle was on at generation time */}
+              {automationReady && automationWasGenerated && (
+                <div className="export-group export-group--automation">
+                  <p className="export-group-label">Automation Scripts</p>
+                  <div className="export-group-btns export-group-btns--col">
+                    <button
+                      className={`btn-export btn-export-playwright btn-export--full btn-export--green ${exportLoading === 'playwright' ? 'btn-export-loading' : ''}`}
+                      onClick={() => handleExport('playwright')}
+                      disabled={!!exportLoading}
+                    >
+                      <span className="export-btn-icon">🎭</span>
+                      <span>{exportLoading === 'playwright' ? 'Generating…' : 'Playwright'}</span>
+                      <span className="export-ext">.spec.js</span>
+                    </button>
+                    <button
+                      className={`btn-export btn-export-cypress btn-export--full btn-export--green ${exportLoading === 'cypress' ? 'btn-export-loading' : ''}`}
+                      onClick={() => handleExport('cypress')}
+                      disabled={!!exportLoading}
+                    >
+                      <span className="export-btn-icon">🌲</span>
+                      <span>{exportLoading === 'cypress' ? 'Generating…' : 'Cypress'}</span>
+                      <span className="export-ext">.cy.js</span>
+                    </button>
+                    <button
+                      className={`btn-export btn-export-postman btn-export--full btn-export--green ${exportLoading === 'postman' ? 'btn-export-loading' : ''}`}
+                      onClick={() => handleExport('postman')}
+                      disabled={!!exportLoading}
+                    >
+                      <span className="export-btn-icon">📮</span>
+                      <span>{exportLoading === 'postman' ? 'Generating…' : 'Postman'}</span>
+                      <span className="export-ext">.json</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {exportError && (
@@ -644,13 +803,12 @@ export default function App() {
                 <h2 className="results-title">Generated Test Cases</h2>
                 <p className="results-count">{testCases.length} test case{testCases.length !== 1 ? 's' : ''} generated</p>
               </div>
+              <button className="btn-new-test" onClick={handleNewTestCase} title="Reset everything and start fresh">
+                + New Test Case
+              </button>
             </div>
 
-            <div className="tc-grid">
-              {testCases.map((tc, i) => (
-                <TestCaseCard key={tc.id || i} tc={tc} index={i} isGherkin={activeFormat === 'Gherkin'} />
-              ))}
-            </div>
+            <ExpandableTestCases testCases={testCases} isGherkin={activeFormat === 'Gherkin'} />
           </section>
         )}
       </main>
@@ -750,7 +908,15 @@ export default function App() {
 
       <footer className="footer">
         <p>Quantix &copy; {new Date().getFullYear()} — AI-powered QA for modern teams</p>
+        <p style={{ marginTop: '6px' }}>
+          <TermsAndConditions theme={theme} />
+        </p>
       </footer>
+
+      {/* Floating Contact Us button */}
+      <div className="contact-fab-wrapper">
+        <ContactUsModal />
+      </div>
     </div>
   );
 }

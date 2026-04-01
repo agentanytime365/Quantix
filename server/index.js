@@ -8,6 +8,7 @@ const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 3001;
 const fs = require('fs');
 const distPath = path.join(__dirname, '../client/dist');
+const demoDistPath = path.join(__dirname, '../demo-video/dist');
 const isProd = process.env.NODE_ENV === 'production' || fs.existsSync(distPath);
 
 app.use(cors());
@@ -15,6 +16,14 @@ app.use(express.json());
 
 // Mount all API routes
 app.use('/api', routes);
+
+// Serve video demo at /demo
+if (fs.existsSync(demoDistPath)) {
+  app.use('/demo', express.static(demoDistPath));
+  app.get('/demo/*', (req, res) => {
+    res.sendFile(path.join(demoDistPath, 'index.html'));
+  });
+}
 
 // Serve built Vite client whenever dist/ exists (production / deployment)
 if (isProd) {

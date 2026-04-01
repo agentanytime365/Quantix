@@ -1,41 +1,69 @@
 /**
  * FEATURE: AUTOMATION_READY (Premium)
  *
- * Converts AI-structured automation steps into Cypress test scripts.
- * Input: tests[] from aiAutomationService — each step has { action, selector, value, assertion }
+ * Converts structured automation steps into Cypress test scripts.
+ * Input: tests[] from templateConverter / aiAutomationService
+ * Each step has { action, selector, value, assertion } or { action: 'multitype', fields }
  */
 
 function assertionToCypress(selector, assertion) {
-  if (!assertion || !selector) return null;
+  if (!assertion) return null;
+  const exp = assertion.expected != null ? JSON.stringify(String(assertion.expected)) : '""';
+
+  // URL / redirect assertion — no selector needed
+  if (assertion.type === 'url') {
+    const path = assertion.expected || '/';
+    return `    cy.url().should('include', ${JSON.stringify(path)});`;
+  }
+
+  if (!selector) return null;
   const sel = JSON.stringify(selector);
-  const exp = assertion.expected != null ? JSON.stringify(String(assertion.expected)) : null;
+
   switch (assertion.type) {
-    case 'visible':  return `    cy.get(${sel}).should('be.visible');`;
-    case 'hidden':   return `    cy.get(${sel}).should('not.exist');`;
-    case 'contains': return `    cy.get(${sel}).should('contain', ${exp || '""'});`;
-    case 'equals':   return `    cy.get(${sel}).should('have.text', ${exp || '""'});`;
-    default:         return `    cy.get(${sel}).should('be.visible');`;
+    case 'visible':
+      return `    cy.get(${sel}).should('be.visible');`;
+    case 'hidden':
+      return `    cy.get(${sel}).should('not.exist');`;
+    case 'contains':
+      return `    cy.contains(${exp}).should('be.visible');`;
+    case 'equals':
+      return `    cy.get(${sel}).should('have.text', ${exp});`;
+    default:
+      return `    cy.get(${sel}).should('be.visible');`;
   }
 }
 
 function stepToCypress(step) {
-  const { action, selector, value, assertion } = step;
+  const { action, selector, value, assertion, fields } = step;
   const sel = selector ? JSON.stringify(selector) : null;
   const val = value != null ? JSON.stringify(String(value)) : null;
 
   switch (action) {
     case 'navigate':
-      return `    cy.visit(${val || sel || JSON.stringify('/')});`;
+      return [`    cy.visit(${val || sel || JSON.stringify('/')});`];
+
     case 'click':
-      return `    cy.get(${sel}).click();`;
+      return [`    cy.get(${sel}).click();`];
+
     case 'type':
-      return `    cy.get(${sel}).type(${val || '""'});`;
+      return [`    cy.get(${sel}).clear().type(${val || '""'});`];
+
+    case 'multitype':
+      // Expand each field into its own cy.get().clear().type() line
+      return (fields || []).map(
+        (f) => `    cy.get(${JSON.stringify(f.selector)}).clear().type(${JSON.stringify(f.value)});`
+      );
+
     case 'select':
-      return `    cy.get(${sel}).select(${val || '""'});`;
-    case 'assert':
-      return assertionToCypress(selector, assertion) || `    cy.get(${sel}).should('be.visible');`;
+      return [`    cy.get(${sel}).select(${val || '""'});`];
+
+    case 'assert': {
+      const line = assertionToCypress(selector, assertion);
+      return [line || `    cy.get(${sel || '"body"'}).should('be.visible');`];
+    }
+
     default:
-      return `    // ${action}${selector ? ` → ${selector}` : ''}`;
+      return [`    // ${action}${selector ? ` → ${selector}` : ''}`];
   }
 }
 
@@ -51,7 +79,7 @@ function generateCypress(aiTests) {
     lines.push(`  it('${title}', () => {`);
 
     (t.steps || []).forEach((step) => {
-      lines.push(stepToCypress(step));
+      stepToCypress(step).forEach((line) => lines.push(line));
     });
 
     lines.push(`  });`);

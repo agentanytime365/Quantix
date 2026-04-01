@@ -1,41 +1,69 @@
 /**
  * FEATURE: AUTOMATION_READY (Premium)
  *
- * Converts AI-structured automation steps into Playwright test scripts.
- * Input: tests[] from aiAutomationService — each step has { action, selector, value, assertion }
+ * Converts structured automation steps into Playwright test scripts.
+ * Input: tests[] from templateConverter / aiAutomationService
+ * Each step has { action, selector, value, assertion } or { action: 'multitype', fields }
  */
 
 function assertionToPlaywright(selector, assertion) {
-  if (!assertion || !selector) return null;
+  if (!assertion) return null;
+  const exp = assertion.expected != null ? JSON.stringify(String(assertion.expected)) : '""';
+
+  // URL / redirect assertion — no selector needed
+  if (assertion.type === 'url') {
+    const path = assertion.expected || '/';
+    return `  await expect(page).toHaveURL(expect.stringContaining(${JSON.stringify(path)}));`;
+  }
+
+  if (!selector) return null;
   const sel = JSON.stringify(selector);
-  const exp = assertion.expected != null ? JSON.stringify(String(assertion.expected)) : null;
+
   switch (assertion.type) {
-    case 'visible':  return `  await expect(page.locator(${sel})).toBeVisible();`;
-    case 'hidden':   return `  await expect(page.locator(${sel})).toBeHidden();`;
-    case 'contains': return `  await expect(page.locator(${sel})).toContainText(${exp || '""'});`;
-    case 'equals':   return `  await expect(page.locator(${sel})).toHaveText(${exp || '""'});`;
-    default:         return `  await expect(page.locator(${sel})).toBeVisible();`;
+    case 'visible':
+      return `  await expect(page.locator(${sel})).toBeVisible();`;
+    case 'hidden':
+      return `  await expect(page.locator(${sel})).toBeHidden();`;
+    case 'contains':
+      return `  await expect(page.getByText(${exp})).toBeVisible();`;
+    case 'equals':
+      return `  await expect(page.locator(${sel})).toHaveText(${exp});`;
+    default:
+      return `  await expect(page.locator(${sel})).toBeVisible();`;
   }
 }
 
 function stepToPlaywright(step) {
-  const { action, selector, value, assertion } = step;
+  const { action, selector, value, assertion, fields } = step;
   const sel = selector ? JSON.stringify(selector) : null;
   const val = value != null ? JSON.stringify(String(value)) : null;
 
   switch (action) {
     case 'navigate':
-      return `  await page.goto(${val || sel || JSON.stringify('/')});`;
+      return [`  await page.goto(${val || sel || JSON.stringify('/')});`];
+
     case 'click':
-      return `  await page.click(${sel});`;
+      return [`  await page.click(${sel});`];
+
     case 'type':
-      return `  await page.fill(${sel}, ${val || '""'});`;
+      return [`  await page.fill(${sel}, ${val || '""'});`];
+
+    case 'multitype':
+      // Expand each field into its own page.fill() line
+      return (fields || []).map(
+        (f) => `  await page.fill(${JSON.stringify(f.selector)}, ${JSON.stringify(f.value)});`
+      );
+
     case 'select':
-      return `  await page.selectOption(${sel}, ${val || '""'});`;
-    case 'assert':
-      return assertionToPlaywright(selector, assertion) || `  await expect(page.locator(${sel})).toBeVisible();`;
+      return [`  await page.selectOption(${sel}, ${val || '""'});`];
+
+    case 'assert': {
+      const line = assertionToPlaywright(selector, assertion);
+      return [line || `  await expect(page.locator(${sel || '"body"'})).toBeVisible();`];
+    }
+
     default:
-      return `  // ${action}${selector ? ` → ${selector}` : ''}`;
+      return [`  // ${action}${selector ? ` → ${selector}` : ''}`];
   }
 }
 
@@ -53,7 +81,7 @@ function generatePlaywright(aiTests) {
     lines.push(`  test('${title}', async ({ page }) => {`);
 
     (t.steps || []).forEach((step) => {
-      lines.push(stepToPlaywright(step));
+      stepToPlaywright(step).forEach((line) => lines.push(line));
     });
 
     lines.push(`  });`);
