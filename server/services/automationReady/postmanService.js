@@ -1,107 +1,162 @@
 /**
  * FEATURE: AUTOMATION_READY (Premium)
  *
- * Converts AI-structured automation steps into a Postman Collection v2.1.
- * Input: tests[] from aiAutomationService — each step has { action, selector, value, assertion }
- * For Postman, action is always "api_request", selector = endpoint, value = payload.
+ * Converts Quantix test cases into a Postman Collection v2.1.
+ *
+ * Strategy:
+ *  1. If a test case has explicit api_request steps → use those.
+ *  2. Otherwise, infer endpoint + method from the test case title/description
+ *     and harvest all testData values across steps to build the request body.
  */
 
-function inferHttpMethod(endpoint, value) {
-  if (!endpoint) return 'POST';
-  const ep = endpoint.toLowerCase();
-  const val = value ? value.toString().toLowerCase() : '';
-  if (ep.includes('delete') || val.includes('delete')) return 'DELETE';
-  if (ep.includes('update') || ep.includes('edit') || val.includes('put')) return 'PUT';
-  if (ep.includes('list') || ep.includes('fetch') || ep.includes('get') || ep.endsWith('s')) {
-    if (!val || val === 'null') return 'GET';
-  }
-  return 'POST';
-}
+const {
+  parseTestData,
+  inferEndpoint,
+  inferHttpMethod,
+} = require('./templateConverter');
 
-function buildPostmanTests(assertion) {
-  if (!assertion) return [];
+// ─── Helper: build pm.test assertions ────────────────────────────────────────
+
+function buildPostmanTests(assertion, method) {
   const scripts = [];
-  if (assertion.type === 'status' && assertion.expected) {
-    scripts.push(`pm.test("Status ${assertion.expected}", () => pm.response.to.have.status(${assertion.expected}));`);
+
+  // Always add a status code check
+  if (assertion && assertion.type === 'status' && assertion.expected) {
+    scripts.push(
+      `pm.test("Status ${assertion.expected}", () => pm.response.to.have.status(${assertion.expected}));`
+    );
+  } else {
+    const expectedStatus = method === 'DELETE' ? 204 : 200;
+    scripts.push(
+      `pm.test("Status code is ${expectedStatus}", () => pm.response.to.have.status(${expectedStatus}));`
+    );
   }
-  if (assertion.type === 'equals' && assertion.expected) {
+
+  // Response-time guard
+  scripts.push(
+    `pm.test("Response time < 2000ms", () => pm.expect(pm.response.responseTime).to.be.below(2000));`
+  );
+
+  // Content-type check for non-DELETE
+  if (method !== 'DELETE') {
+    scripts.push(
+      `pm.test("Response is JSON", () => pm.response.to.have.header("Content-Type", /json/));`
+    );
+  }
+
+  if (assertion && assertion.type === 'contains' && assertion.expected) {
     const exp = JSON.stringify(assertion.expected);
-    scripts.push(`pm.test("Response equals ${assertion.expected}", () => {`);
-    scripts.push(`  const json = pm.response.json();`);
-    scripts.push(`  pm.expect(JSON.stringify(json)).to.include(${exp});`);
-    scripts.push(`});`);
+    scripts.push(
+      `pm.test("Response contains expected value", () => {`,
+      `  pm.expect(pm.response.text()).to.include(${exp});`,
+      `});`
+    );
   }
-  if (assertion.type === 'contains' && assertion.expected) {
-    scripts.push(`pm.test("Response contains expected value", () => {`);
-    scripts.push(`  pm.expect(pm.response.text()).to.include(${JSON.stringify(assertion.expected)});`);
-    scripts.push(`});`);
-  }
+
   return scripts;
 }
 
-function buildRequestItem(step, idx) {
-  const endpoint = step.selector || '/api/endpoint';
-  const rawUrl = endpoint.startsWith('http') ? endpoint : `{{baseUrl}}${endpoint}`;
-  const method = inferHttpMethod(endpoint, step.value);
+// ─── Helper: collect all testData from steps into one payload object ──────────
 
-  let payload = null;
-  if (step.value && step.value !== 'null') {
-    try {
-      payload = typeof step.value === 'string' ? JSON.parse(step.value) : step.value;
-    } catch {
-      payload = { data: step.value };
+function harvestBodyFromSteps(steps) {
+  const body = {};
+  for (const step of steps || []) {
+    if (!step.testData || step.testData === 'N/A') continue;
+    const parsed = parseTestData(step.testData);
+    if (parsed) {
+      Object.assign(body, parsed);
+    } else {
+      // Single bare value — try to find a key from the step text
+      const keyMatch = (step.step || '').match(/\b(email|password|username|name|phone|address|search|query|id)\b/i);
+      if (keyMatch) body[keyMatch[1].toLowerCase()] = step.testData;
     }
   }
+  return Object.keys(body).length > 0 ? body : null;
+}
+
+// ─── Build one Postman request item ──────────────────────────────────────────
+
+function buildRequestItem(name, endpoint, method, payload, assertion) {
+  const rawUrl = endpoint.startsWith('http') ? endpoint : `{{baseUrl}}${endpoint}`;
 
   const request = {
     method,
     header: [
       { key: 'Content-Type', value: 'application/json' },
-      { key: 'Authorization', value: 'Bearer {{token}}' }
+      { key: 'Authorization', value: 'Bearer {{token}}' },
     ],
     url: {
       raw: rawUrl,
       host: ['{{baseUrl}}'],
-      path: endpoint.replace(/^\//, '').split('/')
-    }
+      path: endpoint.replace(/^\//, '').split('/'),
+    },
   };
 
-  if (payload && method !== 'GET') {
+  if (payload && method !== 'GET' && method !== 'DELETE') {
     request.body = {
       mode: 'raw',
       raw: JSON.stringify(payload, null, 2),
-      options: { raw: { language: 'json' } }
+      options: { raw: { language: 'json' } },
     };
   }
 
-  const testScripts = buildPostmanTests(step.assertion);
+  const testScripts = buildPostmanTests(assertion, method);
 
   return {
-    name: `${method} ${endpoint}`,
+    name: `${method} ${name}`,
     request,
     event: testScripts.length > 0
       ? [{ listen: 'test', script: { exec: testScripts, type: 'text/javascript' } }]
-      : []
+      : [],
   };
 }
+
+// ─── Build folder items for one test case ────────────────────────────────────
+
+function buildFolderItems(t) {
+  const steps = t.steps || [];
+
+  // Path A: explicit api_request steps
+  const apiSteps = steps.filter((s) => s.action === 'api_request');
+  if (apiSteps.length > 0) {
+    return apiSteps.map((s) => {
+      const endpoint = s.selector || '/api/resource';
+      const method   = inferHttpMethod(endpoint + ' ' + (s.value || ''));
+      let payload = null;
+      if (s.value && s.value !== 'null') {
+        const parsed = parseTestData(s.value);
+        payload = parsed || { data: s.value };
+      }
+      return buildRequestItem(endpoint, endpoint, method, payload, s.assertion);
+    });
+  }
+
+  // Path B: infer from test case title + harvest testData from all steps
+  const titleAndDesc = `${t.title || ''} ${t._raw?.description || ''}`;
+  const endpoint = inferEndpoint(titleAndDesc);
+  const method   = inferHttpMethod(titleAndDesc);
+  const payload  = harvestBodyFromSteps(t._raw?.steps || []);
+
+  return [buildRequestItem(t.title || 'Request', endpoint, method, payload, null)];
+}
+
+// ─── Main generator ───────────────────────────────────────────────────────────
 
 function generatePostman(aiTests) {
   const collection = {
     info: {
       name: 'Quantix Collection — Automation Ready',
       description: 'Generated by Quantix AI — executable API test collection',
-      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
     variable: [
       { key: 'baseUrl', value: 'https://your-api.example.com', type: 'string' },
-      { key: 'token', value: '', type: 'string' }
+      { key: 'token',   value: '',                             type: 'string' },
     ],
     item: aiTests.map((t) => ({
-      name: t.title,
-      item: (t.steps || [])
-        .filter((s) => s.action === 'api_request')
-        .map((s, idx) => buildRequestItem(s, idx))
-    }))
+      name: t.title || 'Test Case',
+      item: buildFolderItems(t),
+    })),
   };
 
   return JSON.stringify(collection, null, 2);
